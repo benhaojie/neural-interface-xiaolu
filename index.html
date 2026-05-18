@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <!-- 设置浏览器主题色，与UI背景融合 -->
+  <meta name="theme-color" content="#020210">
+  <title>神经界面 · 小陆</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #020210; font-family: 'Segoe UI', 'Arial', sans-serif; color: #b0e0ff; overflow: hidden; height: 100vh; }
+    .main-container {
+      position: relative; z-index:1; width:100%; height:100%;
+      display: grid; grid-template-columns: 320px 1fr; grid-template-rows: 1fr;
+      transition: grid-template-columns 0.5s ease;
+    }
+    .main-container.mode2 { grid-template-columns: 1fr 320px; }
+    .left-panel {
+      background: rgba(8,15,28,0.75); backdrop-filter: blur(15px);
+      border-right: 1px solid rgba(0, 200, 255, 0.4);
+      display: flex; flex-direction: column;
+      height:100%; box-shadow: 4px 0 20px rgba(0, 180, 255, 0.2);
+      transition: border 0.5s, order 0s;
+      order: 0;
+    }
+    .center-panel { position: relative; background: transparent; overflow: hidden; order: 0; }
+    .main-container.mode2 .left-panel {
+      order: 2; border-right: none;
+      border-left: 1px solid rgba(0, 200, 255, 0.4);
+      box-shadow: -4px 0 20px rgba(0, 180, 255, 0.2);
+    }
+    .main-container.mode2 .center-panel { order: 1; }
+    .bubble-container { height: 180px; border-bottom: 1px solid rgba(0, 200, 255, 0.3); display: flex; flex-direction: column; align-items: center; justify-content: center; background: radial-gradient(circle at center, rgba(0,150,255,0.04) 0%, transparent 70%); }
+    #bubbleCanvas { width:100%; height:150px; display:block; }
+    .status-text { font-size: 11px; color: #8090a0; letter-spacing: 1px; padding: 2px 0 6px 0; text-shadow: 0 0 8px rgba(100,160,255,0.4); }
+    .status-text.listening { color: #6ae06a; text-shadow: 0 0 10px #4a8; }
+    .status-text.speaking { color: #e0c06a; text-shadow: 0 0 10px #c84; }
+    .history-chat {
+      flex: 1 1 0; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap:8px;
+      scrollbar-width: thin; scrollbar-color: rgba(0, 200, 255, 0.4) transparent;
+    }
+    .history-chat::-webkit-scrollbar { width:4px; }
+    .history-chat::-webkit-scrollbar-thumb { background: rgba(0, 200, 255, 0.5); border-radius:4px; }
+    .chat-item {
+      padding:10px 14px; background: rgba(0, 100, 200, 0.08);
+      border:1px solid rgba(0, 200, 255, 0.2); border-radius:12px;
+      color:#c0d0e0; font-size:13px; line-height:1.5;
+      backdrop-filter: blur(5px); transition: all 0.2s ease; cursor: pointer;
+    }
+    .chat-item:hover { border-color: rgba(0, 255, 255, 0.5); background: rgba(0, 150, 255, 0.15); box-shadow: 0 0 15px rgba(0, 200, 255, 0.3); }
+    .chat-item .time { font-size:10px; color:#6a8a9a; margin-top:6px; }
+    .input-area {
+      border-top: 1px solid rgba(0, 200, 255, 0.3); padding: 10px 12px; display: flex; gap: 6px;
+      background: rgba(0,0,0,0.3); flex-shrink: 0;
+    }
+    .input-area input {
+      flex:1; background: rgba(20,30,50,0.7); border: 1px solid rgba(0, 200, 255, 0.4);
+      border-radius: 20px; padding: 8px 14px; color: #e0f0ff; font-size: 13px; outline: none;
+    }
+    .input-area input::placeholder { color: #5a6a7a; }
+    .input-area button {
+      width: 36px; height:36px; border-radius: 50%; background: rgba(0, 180, 255, 0.2);
+      border: 1px solid rgba(0, 255, 255, 0.5); color: #80e0ff; font-size: 16px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; transition: all 0.2s;
+    }
+    .input-area button:hover { background: rgba(0, 220, 255, 0.4); box-shadow: 0 0 15px rgba(0, 200, 255, 0.6); }
+    .system-info {
+      border-top: 1px solid rgba(0, 200, 255, 0.3); padding: 8px 14px; display: flex; flex-direction: column; gap:5px;
+      background: rgba(0,0,0,0.4); flex-shrink: 0;
+    }
+    .info-row { display: flex; align-items: center; justify-content: space-between; font-size:11px; color:#8aa0b0; letter-spacing:0.5px; }
+    .info-row .value {
+      color:#e0f0ff; font-weight:bold; background: rgba(0, 200, 255, 0.2); padding:2px 8px; border-radius:8px;
+    }
+    #coreCanvas, #earthCanvas, #webFrame { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none; }
+    #coreCanvas.active, #earthCanvas.active, #webFrame.active { display: block; }
+    #webFrame { border: none; background: #000; }
+    .core-title {
+      position: absolute; top: 25px; left: 50%; transform: translateX(-50%);
+      color: #e0d0c0; font-size: 30px; font-weight: bold; letter-spacing: 12px;
+      text-shadow: 0 0 20px rgba(139,90,43,0.8), 0 0 40px rgba(200,160,100,0.6);
+      z-index: 5; pointer-events: none;
+    }
+    .bottom-chat {
+      position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+      width: 60%; max-width: 700px; max-height: 60vh; overflow-y: auto;
+      background: rgba(10,18,32,0.92); backdrop-filter: blur(20px);
+      border: 1px solid rgba(0, 200, 255, 0.5); border-radius: 20px; padding: 14px 18px;
+      display: flex; flex-direction: column; box-shadow: 0 0 40px rgba(0, 200, 255, 0.3);
+      transition: opacity 0.3s; opacity: 0; pointer-events: none; z-index: 10; color: #e0f0ff; font-size: 14px;
+    }
+    .bottom-chat.visible { opacity: 1; pointer-events: auto; bottom: 30px; }
+    .bottom-chat .ai-message { margin-bottom: 6px; }
+    .bottom-chat .timestamp { font-size: 10px; color: #8a7a6a; align-self: flex-end; }
+    .hot-card {
+      position: absolute; width: 220px; background: rgba(10, 18, 32, 0.85); backdrop-filter: blur(15px);
+      border: 1px solid rgba(0, 200, 255, 0.4); border-radius: 16px; padding: 12px 16px;
+      color: #d0e0ff; font-size: 12px; line-height: 1.5; box-shadow: 0 0 25px rgba(0,0,0,0.6); z-index: 8; display: none;
+    }
+    .hot-card.top-left { top: 20px; left: 20px; }
+    .hot-card.top-right { top: 20px; right: 20px; }
+    .hot-card.bottom-left { bottom: 20px; left: 20px; }
+    .hot-card.bottom-right { bottom: 20px; right: 20px; }
+    .hot-card .platform { font-size: 14px; font-weight: bold; margin-bottom: 6px; color: #f0d090; text-shadow: 0 0 10px rgba(200,160,100,0.6); }
+    .hot-card .item { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid rgba(0, 200, 255, 0.2); }
+    .hot-card .item:last-child { border-bottom: none; }
+    .hot-card .rank { color: #a09080; width: 20px; }
+    .hot-card .title { flex:1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .weather-card {
+      position: absolute; top: 20px; right: 20px; width: 260px;
+      background: rgba(10, 18, 32, 0.9); backdrop-filter: blur(15px);
+      border: 1px solid rgba(0, 200, 255, 0.5); border-radius: 20px; padding: 16px 18px;
+      color: #e0f0ff; box-shadow: 0 0 40px rgba(0, 200, 255, 0.3); z-index: 12; display: none;
+      animation: fadeSlideIn 0.4s ease;
+    }
+    @keyframes fadeSlideIn { from { opacity: 0; transform: translateY(-15px); } to { opacity: 1; transform: translateY(0); } }
+    .weather-card .city { font-size: 18px; font-weight: bold; margin-bottom: 8px; color: #ffd080; text-shadow: 0 0 10px rgba(200,160,100,0.6); }
+    .weather-card .main-info { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .weather-card .temp { font-size: 36px; font-weight: 300; color: #ffffff; line-height: 1; }
+    .weather-card .desc { font-size: 14px; color: #b0d0ff; text-align: right; }
+    .weather-card .details { display: flex; justify-content: space-between; font-size: 11px; color: #8090a0; border-top: 1px solid rgba(0, 200, 255, 0.3); padding-top: 10px; }
+    .weather-card .details span { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  </style>
+</head>
+<body>
+  <div class="main-container" id="mainContainer">
+    <div class="left-panel" id="sidePanel">
+      <div class="bubble-container"><canvas id="bubbleCanvas"></canvas><div class="status-text" id="bubbleStatus">聆听中</div></div>
+      <div class="history-chat" id="historyChat">
+        <div class="chat-item">系统：神经界面已启动。<br><div class="time">10:23</div></div>
+        <div class="chat-item">系统：全息核心已激活。<br><div class="time">10:24</div></div>
+      </div>
+      <div class="input-area"><input type="text" id="userInput" placeholder="输入指令..."><button id="sendTextBtn">▶</button></div>
+      <div class="system-info" id="systemInfo">
+        <div class="info-row"><span>🧠 CPU</span><span class="value" id="cpuValue">--</span></div>
+        <div class="info-row"><span>📊 内存</span><span class="value" id="memValue">--</span></div>
+        <div class="info-row"><span>🎮 GPU</span><span class="value" id="gpuValue">--</span></div>
+      </div>
+    </div>
+    <div class="center-panel" id="centerPanel">
+      <canvas id="coreCanvas" class="active"></canvas>
+      <canvas id="earthCanvas"></canvas>
+      <iframe id="webFrame" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+      <div class="core-title" id="coreTitle">小陆</div>
+      <div class="weather-card" id="weatherCard">
+        <div class="city" id="weatherCity">北京</div>
+        <div class="main-info"><div class="temp" id="weatherTemp">26°</div><div class="desc" id="weatherDesc">晴</div></div>
+        <div class="details"><span>💧 <span id="weatherHumidity">45%</span></span><span>🌬️ <span id="weatherWind">3级</span></span><span>🌅 <span id="weatherAqi">优</span></span></div>
+      </div>
+      <div class="hot-card top-left" id="hotDouyin"><div class="platform">🎵 抖音</div></div>
+      <div class="hot-card top-right" id="hotXiaohongshu"><div class="platform">📕 小红书</div></div>
+      <div class="hot-card bottom-left" id="hotWeibo"><div class="platform">🐦 微博</div></div>
+      <div class="hot-card bottom-right" id="hotNews"><div class="platform">📰 新闻</div></div>
+      <div class="bottom-chat" id="bottomChat"><div class="ai-message" id="aiMessage">……</div><div class="timestamp" id="aiTimestamp"></div></div>
+    </div>
+  </div>
+
+  <script type="importmap">
+    { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/" } }
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+    import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+    import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+    const coreCanvas = document.getElementById('coreCanvas');
+    const earthCanvas = document.getElementById('earthCanvas');
+    const webFrame = document.getElementById('webFrame');
+
+    // 核心场景
+    const coreScene = new THREE.Scene();
+    coreScene.background = new THREE.Color(0x050810);
+    const coreCamera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+    coreCamera.position.set(0, 1.2, 4.5);
+    const coreRenderer = new THREE.WebGLRenderer({ canvas: coreCanvas, antialias: true });
+    coreRenderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    coreRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+    coreRenderer.toneMappingExposure = 1.2;
+    coreRenderer.setClearColor(0x050810, 1);
+    const composer = new EffectComposer(coreRenderer);
+    composer.addPass(new RenderPass(coreScene, coreCamera));
+    const bloom = new UnrealBloomPass(new THREE.Vector2(coreCanvas.clientWidth, coreCanvas.clientHeight), 1.5, 0.5, 0.2);
+    composer.addPass(bloom);
+    const coreControls = new OrbitControls(coreCamera, coreRenderer.domElement);
+    coreControls.enableDamping = true; coreControls.dampingFactor = 0.06;
+    coreControls.autoRotate = true; coreControls.autoRotateSpeed = 0.5;
+    coreControls.minDistance = 2.5; coreControls.maxDistance = 10;
+    coreControls.target.set(0, 0.3, 0);
+
+    // 星空
+    const starsGeo = new THREE.BufferGeometry();
+    const starsPos = new Float32Array(4000 * 3);
+    for (let i = 0; i < 4000 * 3; i += 3) {
+      const r = 18 + Math.random() * 40, th = Math.random() * Math.PI * 2, ph = Math.acos(2 * Math.random() - 1);
+      starsPos[i] = r * Math.sin(ph) * Math.cos(th);
+      starsPos[i+1] = r * Math.sin(ph) * Math.sin(th);
+      starsPos[i+2] = r * Math.cos(ph);
+    }
+    starsGeo.setAttribute('position', new THREE.BufferAttribute(starsPos, 3));
+    const starsField = new THREE.Points(starsGeo, new THREE.PointsMaterial({ color: 0xaaccff, size: 0.12, blending: THREE.AdditiveBlending, depthWrite: false }));
+    coreScene.add(starsField);
+
+    // 光照
+    coreScene.add(new THREE.AmbientLight(0x445566, 3.0));
+    const sunLight = new THREE.PointLight(0xfff5e8, 20, 55);
+    sunLight.position.set(0, 0, 0);
+    coreScene.add(sunLight);
+    coreScene.add(new THREE.DirectionalLight(0x8899cc, 3.0).position.set(4, 2, 4));
+    coreScene.add(new THREE.DirectionalLight(0xffffff, 2.5).position.set(-2, -0.5, -4));
+
+    // 辅助函数
+    function createAtmoLayer(radius, color1, color2, power, alpha) {
+      const geo = new THREE.SphereGeometry(radius, 80, 60);
+      const mat = new THREE.ShaderMaterial({
+        uniforms: { uColor1: { value: new THREE.Color(color1) }, uColor2: { value: new THREE.Color(color2) }, uPower: { value: power }, uAlpha: { value: alpha } },
+        vertexShader: `varying vec3 vN,vP; void main(){ vec4 mv=modelViewMatrix*vec4(position,1.); vP=mv.xyz; vN=normalize(normalMatrix*normal); gl_Position=projectionMatrix*mv; }`,
+        fragmentShader: `varying vec3 vN,vP; uniform vec3 uColor1,uColor2; uniform float uPower,uAlpha; void main(){ vec3 v=normalize(-vP); float f=1.-abs(dot(v,vN)); f=pow(f,uPower); vec3 col=mix(uColor1,uColor2,f); gl_FragColor=vec4(col,f*uAlpha); }`,
+        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
+      });
+      const mesh = new THREE.Mesh(geo, mat); mesh.renderOrder = 1; return mesh;
+    }
+
+    function createBumpTexture() {
+      const canvas = document.createElement('canvas'); canvas.width = 1024; canvas.height = 512;
+      const ctx = canvas.getContext('2d'); ctx.fillStyle = '#808080'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      for (let i = 0; i < 2500; i++) {
+        const x = Math.random()*canvas.width, y = Math.random()*canvas.height, r = 1+Math.random()*10;
+        ctx.fillStyle = Math.random()<0.5?`rgba(255,255,255,${0.05+Math.random()*0.35})`:`rgba(0,0,0,${0.05+Math.random()*0.35})`;
+        ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
+      }
+      const bumpTex = new THREE.CanvasTexture(canvas); bumpTex.colorSpace = THREE.LinearSRGBColorSpace; return bumpTex;
+    }
+
+    // 行星纹理函数 (简化版，保留原版所有纹理生成)
+    function createMercuryTexture() { const W=2048,H=1024; const c=document.createElement('canvas');c.width=W;c.height=H; const ctx=c.getContext('2d'); const bg=ctx.createLinearGradient(0,0,0,H);bg.addColorStop(0,'#7a7568');bg.addColorStop(0.5,'#90887b');bg.addColorStop(1,'#736b60');ctx.fillStyle=bg;ctx.fillRect(0,0,W,H); const img=ctx.getImageData(0,0,W,H);for(let i=0;i<img.data.length;i+=4){const n=(Math.random()-0.5)*28;img.data[i]=Math.min(255,Math.max(0,img.data[i]+n));img.data[i+1]=Math.min(255,Math.max(0,img.data[i+1]+n));img.data[i+2]=Math.min(255,Math.max(0,img.data[i+2]+n));}ctx.putImageData(img,0,0); [{x:900,y:380,r:140},{x:1500,y:300,r:100},{x:500,y:550,r:120},{x:1200,y:650,r:90},{x:300,y:250,r:110}].forEach(cr=>{const g=ctx.createRadialGradient(cr.x,cr.y,cr.r*0.3,cr.x,cr.y,cr.r);g.addColorStop(0,'rgba(55,50,42,0.55)');g.addColorStop(0.5,'rgba(65,58,48,0.35)');g.addColorStop(1,'rgba(0,0,0,0)');ctx.fillStyle=g;ctx.beginPath();ctx.arc(cr.x,cr.y,cr.r,0,Math.PI*2);ctx.fill();}); for(let i=0;i<500;i++){const x=Math.random()*W,y=Math.random()*H,r=3+Math.random()*35;const g=ctx.createRadialGradient(x-r*0.15,y-r*0.15,r*0.05,x,y,r);g.addColorStop(0,'rgba(45,40,34,0.65)');g.addColorStop(0.4,'rgba(55,48,40,0.45)');g.addColorStop(1,'rgba(0,0,0,0)');ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();} for(let i=0;i<3000;i++){const x=Math.random()*W,y=Math.random()*H,r=0.8+Math.random()*4;ctx.fillStyle=`rgba(50,44,36,${0.1+Math.random()*0.35})`;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();} const tex=new THREE.CanvasTexture(c);tex.wrapS=THREE.RepeatWrapping;tex.wrapT=THREE.RepeatWrapping;tex.colorSpace=THREE.SRGBColorSpace;tex.minFilter=THREE.LinearMipmapLinearFilter;tex.magFilter=THREE.LinearFilter;tex.generateMipmaps=true;return tex; }
+    function createVenusTexture() { const W=2048,H=1024; const c=document.createElement('canvas');c.width=W;c.height=H; const ctx=c.getContext('2d'); const bg=ctx.createLinearGradient(0,0,0,H);bg.addColorStop(0,'#e8d8b0');bg.addColorStop(0.5,'#ebdabc');bg.addColorStop(1,'#d4c090');ctx.fillStyle=bg;ctx.fillRect(0,0,W,H); for(let y=0;y<H;y+=4+Math.random()*12){ctx.fillStyle=`rgba(${Math.random()<0.5?255:170},${Math.random()<0.5?245:140},${Math.random()<0.5?210:80},${0.02+Math.random()*0.08})`;ctx.fillRect(0,y,W,2+Math.random()*6);} for(let i=0;i<300;i++){const cx=Math.random()*W,cy=Math.random()*H,r=20+Math.random()*120;const g=ctx.createRadialGradient(cx,cy,r*0.1,cx,cy,r);g.addColorStop(0,Math.random()<0.6?'rgba(255,240,200,0.15)':'rgba(180,140,80,0.12)');g.addColorStop(0.5,Math.random()<0.6?'rgba(220,180,120,0.1)':'rgba(140,100,60,0.08)');g.addColorStop(1,'rgba(0,0,0,0)');ctx.fillStyle=g;ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.fill();} const tex=new THREE.CanvasTexture(c);tex.wrapS=THREE.RepeatWrapping;tex.wrapT=THREE.RepeatWrapping;tex.colorSpace=THREE.SRGBColorSpace;tex.minFilter=THREE.LinearMipmapLinearFilter;tex.magFilter=THREE.LinearFilter;tex.generateMipmaps=true;return tex; }
+    function createMarsTexture() { const W=2048,H=1024; const c=document.createElement('canvas');c.width=W;c.height=H; const ctx=c.getContext('2d'); const bg=ctx.createLinearGradient(0,0,0,H);bg.addColorStop(0,'#d8876a');bg.addColorStop(0.5,'#d09068');bg.addColorStop(1,'#d8876a');ctx.fillStyle=bg;ctx.fillRect(0,0,W,H); const img=ctx.getImageData(0,0,W,H);for(let i=0;i<img.data.length;i+=4){const n=(Math.random()-0.5)*30;img.data[i]=Math.min(255,Math.max(0,img.data[i]+n));img.data[i+1]=Math.min(255,Math.max(0,img.data[i+1]+n*0.8));img.data[i+2]=Math.min(255,Math.max(0,img.data[i+2]+n*0.5));}ctx.putImageData(img,0,0); const npg=ctx.createLinearGradient(0,0,0,H*0.15);npg.addColorStop(0,'rgba(240,240,245,0.9)');npg.addColorStop(0.6,'rgba(220,225,235,0.6)');npg.addColorStop(1,'rgba(0,0,0,0)');ctx.fillStyle=npg;ctx.fillRect(0,0,W,H*0.15); const spg=ctx.createLinearGradient(0,H,0,H*0.85);spg.addColorStop(0,'rgba(240,240,245,0.85)');spg.addColorStop(0.5,'rgba(220,225,235,0.5)');spg.addColorStop(1,'rgba(0,0,0,0)');ctx.fillStyle=spg;ctx.fillRect(0,H*0.85,W,H*0.15); [{x:1400,y:620,r:160},{x:500,y:300,r:120},{x:1000,y:450,r:100},{x:1600,y:350,r:110}].forEach(b=>{const g=ctx.createRadialGradient(b.x,b.y,b.r*0.2,b.x,b.y,b.r);g.addColorStop(0,'rgba(160,90,60,0.45)');g.addColorStop(0.6,'rgba(180,100,70,0.25)');g.addColorStop(1,'rgba(0,0,0,0)');ctx.fillStyle=g;ctx.beginPath();ctx.arc(b.x,b.y,b.r,0,Math.PI*2);ctx.fill();}); for(let i=0;i<700;i++){const x=Math.random()*W,y=Math.random()*H,r=3+Math.random()*38;const g=ctx.createRadialGradient(x-r*0.1,y-r*0.1,r*0.05,x,y,r);g.addColorStop(0,'rgba(80,35,20,0.6)');g.addColorStop(0.5,'rgba(130,70,45,0.35)');g.addColorStop(1,'rgba(0,0,0,0)');ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();} const tex=new THREE.CanvasTexture(c);tex.wrapS=THREE.RepeatWrapping;tex.wrapT=THREE.RepeatWrapping;tex.colorSpace=THREE.SRGBColorSpace;tex.minFilter=THREE.LinearMipmapLinearFilter;tex.magFilter=THREE.LinearFilter;tex.generateMipmaps=true;return tex; }
+    function createJupiterTexture() { const W=2048,H=1024; const c=document.createElement('canvas');c.width=W;c.height=H; const ctx=c.getContext('2d'); const bg=ctx.createLinearGradient(0,0,0,H);bg.addColorStop(0,'#d4c8a8');bg.addColorStop(0.5,'#d4b880');bg.addColorStop(1,'#d0c0a0');ctx.fillStyle=bg;ctx.fillRect(0,0,W,H); [{y:0.02,h:0.04,c:'rgba(180,120,70,0.7)'},{y:0.13,h:0.05,c:'rgba(160,90,50,0.8)'},{y:0.26,h:0.06,c:'rgba(170,110,60,0.75)'},{y:0.39,h:0.05,c:'rgba(150,80,40,0.8)'},{y:0.52,h:0.07,c:'rgba(180,130,80,0.7)'},{y:0.67,h:0.05,c:'rgba(160,100,55,0.75)'},{y:0.79,h:0.06,c:'rgba(170,110,65,0.7)'},{y:0.93,h:0.05,c:'rgba(150,85,45,0.7)'}].forEach(band=>{const y=band.y*H,h=band.h*H;const g=ctx.createLinearGradient(0,y-h/2,0,y+h/2);g.addColorStop(0,'rgba(0,0,0,0)');g.addColorStop(0.3,band.c);g.addColorStop(0.5,band.c);g.addColorStop(0.7,band.c);g.addColorStop(1,'rgba(0,0,0,0)');ctx.fillStyle=g;ctx.fillRect(0,y-h/2,W,h);}); const spotX=1200,spotY=620,spotR=140; const sg=ctx.createRadialGradient(spotX-15,spotY-10,spotR*0.05,spotX,spotY,spotR);sg.addColorStop(0,'rgba(210,110,80,0.85)');sg.addColorStop(0.25,'rgba(200,100,70,0.75)');sg.addColorStop(0.5,'rgba(190,95,65,0.55)');sg.addColorStop(0.7,'rgba(170,80,50,0.3)');sg.addColorStop(1,'rgba(0,0,0,0)');ctx.fillStyle=sg;ctx.beginPath();ctx.ellipse(spotX,spotY,spotR,spotR*0.75,0.05,0,Math.PI*2);ctx.fill(); const tex=new THREE.CanvasTexture(c);tex.wrapS=THREE.RepeatWrapping;tex.wrapT=THREE.RepeatWrapping;tex.colorSpace=THREE.SRGBColorSpace;tex.minFilter=THREE.LinearMipmapLinearFilter;tex.magFilter=THREE.LinearFilter;tex.generateMipmaps=true;return tex; }
+    function createSaturnTexture() { const W=2048,H=1024; const c=document.createElement('canvas');c.width=W;c.height=H; const ctx=c.getContext('2d'); const bg=ctx.createLinearGradient(0,0,0,H);bg.addColorStop(0,'#c8b890');bg.addColorStop(0.5,'#d0c098');bg.addColorStop(1,'#c4b890');ctx.fillStyle=bg;ctx.fillRect(0,0,W,H); for(let y=0;y<H;y+=4+Math.random()*10){ctx.fillStyle=`rgba(${Math.random()<0.5?230:140},${Math.random()<0.5?215:110},${Math.random()<0.5?175:70},${0.015+Math.random()*0.045})`;ctx.fillRect(0,y,W,1.5+Math.random()*3);} const tex=new THREE.CanvasTexture(c);tex.wrapS=THREE.RepeatWrapping;tex.wrapT=THREE.RepeatWrapping;tex.colorSpace=THREE.SRGBColorSpace;tex.minFilter=THREE.LinearMipmapLinearFilter;tex.magFilter=THREE.LinearFilter;tex.generateMipmaps=true;return tex; }
+
+    // 行星数据
+    const planetData = [
+      { name:'mercury', size:0.30, dist:8,  speed:0.0035 },
+      { name:'venus',    size:0.42, dist:10.5, speed:0.0025 },
+      { name:'earth',    size:0.48, dist:13, speed:0.002  },
+      { name:'mars',     size:0.36, dist:15.5, speed:0.0016 },
+      { name:'jupiter',  size:0.95, dist:19, speed:0.001  },
+      { name:'saturn',   size:0.85, dist:23, speed:0.0007 }
+    ];
+    const planets = [];
+    const loader = new THREE.TextureLoader(); loader.setCrossOrigin('anonymous');
+    const texFuncs = { mercury:createMercuryTexture, venus:createVenusTexture, mars:createMarsTexture, jupiter:createJupiterTexture, saturn:createSaturnTexture };
+
+    planetData.forEach(d => {
+      const geo = new THREE.SphereGeometry(d.size, 72, 48);
+      const mat = new THREE.MeshStandardMaterial({ roughness: d.name==='earth'?0.5:0.7, metalness: 0.05 });
+      if (d.name === 'earth') {
+        mat.color = new THREE.Color(0x2255aa);
+        loader.load('https://threejs.org/examples/textures/planets/earth_atmos_2048.jpg', tex => { tex.colorSpace=THREE.SRGBColorSpace; tex.anisotropy=8; mat.map=tex; mat.color.set(0xffffff); mat.needsUpdate=true; });
+      } else {
+        mat.map = texFuncs[d.name](); mat.color.set(0xffffff);
+      }
+      mat.needsUpdate = true;
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.x = d.dist;
+      mesh.userData = { distance: d.dist, speed: d.speed, angle: Math.random()*Math.PI*2 };
+      coreScene.add(mesh);
+
+      if (d.name==='venus') { mesh.add(createAtmoLayer(d.size*1.03,'#fff8e0','#f0d890',3.5,0.45)); mesh.add(createAtmoLayer(d.size*1.10,'#fffef5','#f8e4b0',4.8,0.25)); mesh.add(createAtmoLayer(d.size*1.22,'#fffffa','#fce8c0',6.5,0.12)); }
+      if (d.name==='jupiter') { mesh.add(createAtmoLayer(d.size*1.04,'#ffe8d0','#e0c8a0',4.0,0.38)); mesh.add(createAtmoLayer(d.size*1.12,'#fff5e8','#f0d8b8',5.5,0.2)); mesh.add(createAtmoLayer(d.size*1.25,'#fffff5','#f8e8d0',7.0,0.08)); }
+      if (d.name==='saturn') { mesh.add(createAtmoLayer(d.size*1.03,'#f5ead0','#d4c090',4.2,0.22)); mesh.add(createAtmoLayer(d.size*1.10,'#faf5e8','#e0d0b0',5.8,0.10)); }
+      if (d.name==='mars') { mesh.add(createAtmoLayer(d.size*1.04,'#e8d0cc','#b0a8c0',4.5,0.18)); mesh.add(createAtmoLayer(d.size*1.10,'#f0e8e4','#c8c0d0',6.0,0.09)); }
+      if (d.name==='earth') {
+        const cloudGeo = new THREE.SphereGeometry(d.size*1.01,48,36);
+        const cloudMat = new THREE.MeshPhongMaterial({ color:0xffffff, transparent:true, opacity:0.35, depthWrite:false });
+        mesh.add(new THREE.Mesh(cloudGeo, cloudMat));
+        loader.load('https://threejs.org/examples/textures/planets/earth_clouds_1024.png', tex => { cloudMat.map=tex; cloudMat.alphaMap=tex; cloudMat.opacity=0.4; cloudMat.needsUpdate=true; });
+        mesh.add(createAtmoLayer(d.size*1.08,'#9ad0f0','#6090c0',5.5,0.12));
+      }
+      if (d.name==='mercury'||d.name==='mars') { mat.bumpMap = createBumpTexture(); mat.bumpScale = 0.025; mat.needsUpdate = true; }
+
+      if (d.name==='saturn') {
+        const ringGroup = new THREE.Group(); ringGroup.rotation.x = 26.7*(Math.PI/180);
+        const RING_INNER = d.size*0.48, RING_OUTER = d.size*2.05;
+        const ringTexCanvas = document.createElement('canvas'); ringTexCanvas.width=8; ringTexCanvas.height=512; const rctx=ringTexCanvas.getContext('2d');
+        for (let y=0;y<512;y++) { const t=y/511,r=RING_INNER+t*(RING_OUTER-RING_INNER); let alpha=0,red=160,green=130,blue=85; if(r<d.size*0.78){alpha=0.12+(r-RING_INNER)*0.4/(d.size*0.3);red=135;green=108;blue=65;}else if(r<d.size*1.20){alpha=0.55;red=180;green=148;blue=98;}else if(r<d.size*1.27){alpha=0.03;red=85;green=68;blue=40;}else if(r<d.size*1.85){alpha=0.42;red=165;green=135;blue=88;}else if(r<d.size*1.90){alpha=0.06;red=100;green=80;blue=50;}else{alpha=Math.max(0,0.22-(r-d.size*1.90)*1.3);red=145;green=118;blue=75;} rctx.fillStyle=`rgba(${red},${green},${blue},${alpha})`; rctx.fillRect(0,y,8,1); }
+        const ringTex = new THREE.CanvasTexture(ringTexCanvas); ringTex.wrapS=THREE.ClampToEdgeWrapping; ringTex.wrapT=THREE.ClampToEdgeWrapping; ringTex.colorSpace=THREE.SRGBColorSpace;
+        [{yOff:0,opacity:0.78,roughness:0.6},{yOff:0.014*d.size,opacity:0.45,roughness:0.65},{yOff:-0.014*d.size,opacity:0.45,roughness:0.65}].forEach(def=>{ const rGeo=new THREE.RingGeometry(RING_INNER,RING_OUTER,320,1); const rMat=new THREE.MeshStandardMaterial({map:ringTex,transparent:true,opacity:def.opacity,side:THREE.DoubleSide,depthWrite:false,roughness:def.roughness,metalness:0.06,alphaTest:0.01}); const rLayer=new THREE.Mesh(rGeo,rMat); rLayer.rotation.x=-Math.PI/2; rLayer.position.y=def.yOff; rLayer.renderOrder=2; ringGroup.add(rLayer); });
+        const pCount=400; const pPositions=new Float32Array(pCount*3); for(let i=0;i<pCount;i++){const angle=Math.random()*Math.PI*2,dist=RING_INNER+Math.random()*(RING_OUTER-RING_INNER); pPositions[i*3]=Math.cos(angle)*dist; pPositions[i*3+1]=(Math.random()-0.5)*0.06*d.size; pPositions[i*3+2]=Math.sin(angle)*dist;}
+        const pGeo=new THREE.BufferGeometry(); pGeo.setAttribute('position',new THREE.BufferAttribute(pPositions,3)); const pMat=new THREE.PointsMaterial({size:0.013,color:0xc4b898,blending:THREE.NormalBlending,depthWrite:false,transparent:true,opacity:0.4}); const ringParticles=new THREE.Points(pGeo,pMat); ringParticles.renderOrder=3; ringGroup.add(ringParticles);
+        mesh.add(ringGroup);
+      }
+      planets.push(mesh);
+    });
+
+    // 大脑模型
+    const core = new THREE.Group(); coreScene.add(core);
+    const brainGroup = new THREE.Group(); core.add(brainGroup);
+    const leftBrain = new THREE.Mesh(new THREE.SphereGeometry(0.7,32,32), new THREE.MeshPhongMaterial({ color:0x00e5ff, transparent:true, opacity:0.25, wireframe:true, shininess:100 }));
+    leftBrain.position.x = -0.35; leftBrain.scale.y = 0.9; leftBrain.scale.z = 0.8; brainGroup.add(leftBrain);
+    const rightBrain = new THREE.Mesh(new THREE.SphereGeometry(0.7,32,32), new THREE.MeshPhongMaterial({ color:0x0066ff, transparent:true, opacity:0.25, wireframe:true, shininess:100 }));
+    rightBrain.position.x = 0.35; rightBrain.scale.y = 0.9; rightBrain.scale.z = 0.8; brainGroup.add(rightBrain);
+    const corpusCallosum = new THREE.Mesh(new THREE.CylinderGeometry(0.15,0.15,0.7,16), new THREE.MeshPhongMaterial({ color:0xff6600, transparent:true, opacity:0.3, wireframe:true }));
+    corpusCallosum.rotation.z = Math.PI/2; corpusCallosum.position.y = 0.1; brainGroup.add(corpusCallosum);
+    const brainWire1 = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.SphereGeometry(0.75,16,16)), new THREE.LineBasicMaterial({ color:0x00e5ff, transparent:true, opacity:0.5 }));
+    brainWire1.position.x = -0.35; brainGroup.add(brainWire1);
+    const brainWire2 = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.SphereGeometry(0.75,16,16)), new THREE.LineBasicMaterial({ color:0x0066ff, transparent:true, opacity:0.5 }));
+    brainWire2.position.x = 0.35; brainGroup.add(brainWire2);
+    const brainNodes = [];
+    [[-0.6,0.4,0.2],[-0.7,-0.2,0.3],[-0.5,0.1,-0.4],[-0.8,0.3,-0.1],[-0.4,-0.3,0.1],[0.6,0.4,0.2],[0.7,-0.2,0.3],[0.5,0.1,-0.4],[0.8,0.3,-0.1],[0.4,-0.3,0.1],[0,0.5,0],[0,-0.4,0]].forEach((pos,i)=>{
+      const node = new THREE.Mesh(new THREE.SphereGeometry(0.05,16,16), new THREE.MeshBasicMaterial({ color: i%3===0?0x00e5ff:i%3===1?0xff6600:0x0066ff, transparent:true, opacity:0.9 }));
+      node.position.set(...pos); brainGroup.add(node); brainNodes.push(node);
+    });
+    function createParticleTorus(ringR, tubeW, count, color, opacity) {
+      const buf = new THREE.BufferGeometry(); const pos = new Float32Array(count*3);
+      for (let i=0;i<count;i++) { const theta=Math.random()*Math.PI*2; const r=ringR+(Math.random()-0.5)*tubeW; pos[i*3]=r*Math.cos(theta); pos[i*3+1]=(Math.random()-0.5)*0.005; pos[i*3+2]=r*Math.sin(theta); }
+      buf.setAttribute('position',new THREE.BufferAttribute(pos,3));
+      return new THREE.Points(buf, new THREE.PointsMaterial({ color, size:0.004, transparent:true, opacity, blending:THREE.AdditiveBlending, sizeAttenuation:true }));
+    }
+    const ring1 = createParticleTorus(1.0,0.12,5000,0x00e5ff,0.8); ring1.rotation.x=Math.PI/2.5; ring1.rotation.z=Math.PI/7; core.add(ring1);
+    const ring2Group = new THREE.Group(); ring2Group.add(createParticleTorus(1.12,0.1,6000,0x0066ff,0.65)); ring2Group.rotation.x=Math.PI/4; core.add(ring2Group);
+    const ring3 = createParticleTorus(0.85,0.08,5000,0xff6600,0.5); ring3.rotation.x=Math.PI/2.8; ring3.rotation.z=-Math.PI/6; core.add(ring3);
+    const pBuf = new THREE.BufferGeometry(); const pPos = new Float32Array(500*3);
+    for (let i=0;i<500;i++) { const r=1.2+Math.random(); const th=Math.random()*Math.PI*2; const ph=Math.acos(2*Math.random()-1); pPos[i*3]=r*Math.sin(ph)*Math.cos(th); pPos[i*3+1]=r*Math.sin(ph)*Math.sin(th); pPos[i*3+2]=r*Math.cos(ph); }
+    pBuf.setAttribute('position',new THREE.BufferAttribute(pPos,3));
+    const particleSystem = new THREE.Points(pBuf, new THREE.PointsMaterial({ color:0x00e5ff, size:0.018, transparent:true, opacity:0.6, blending:THREE.AdditiveBlending, sizeAttenuation:true }));
+    core.add(particleSystem);
+    const eCount=50; const eBuf=new THREE.BufferGeometry(); const ePos=new Float32Array(eCount*3); const eVel=new Float32Array(eCount);
+    for (let i=0;i<eCount;i++) { const ang=Math.random()*Math.PI*2,rad=Math.random()*0.4; ePos[i*3]=Math.cos(ang)*rad; ePos[i*3+1]=-0.7+Math.random()*0.4; ePos[i*3+2]=Math.sin(ang)*rad; eVel[i]=0.005+Math.random()*0.006; }
+    eBuf.setAttribute('position',new THREE.BufferAttribute(ePos,3));
+    const emitP = new THREE.Points(eBuf, new THREE.PointsMaterial({ color:0xff6600, size:0.04, transparent:true, opacity:0.9, blending:THREE.AdditiveBlending }));
+    core.add(emitP);
+
+    // 气泡
+    const bubbleCanvas = document.getElementById('bubbleCanvas');
+    const bubbleRenderer = new THREE.WebGLRenderer({ canvas:bubbleCanvas, antialias:true, alpha:true });
+    bubbleRenderer.setSize(bubbleCanvas.clientWidth, bubbleCanvas.clientHeight); bubbleRenderer.setPixelRatio(Math.min(devicePixelRatio,2));
+    const bubbleScene = new THREE.Scene(); bubbleScene.background = null;
+    const bubbleCamera = new THREE.PerspectiveCamera(40,1,0.1,50); bubbleCamera.position.set(0,0,4); bubbleCamera.lookAt(0,0,0);
+    const outline = new THREE.Line(new THREE.BufferGeometry().setFromPoints(Array.from({length:129},(_,i)=>new THREE.Vector3(Math.cos(i/128*Math.PI*2)*0.75,Math.sin(i/128*Math.PI*2)*0.75,0))),new THREE.LineBasicMaterial({color:0x88ccff,transparent:true,opacity:0.8,blending:THREE.AdditiveBlending,depthWrite:false}));
+    bubbleScene.add(outline);
+    const sphereGeo = new THREE.SphereGeometry(0.75,128,64); const cnt = sphereGeo.attributes.position.count;
+    const origPos = new Float32Array(sphereGeo.attributes.position.array);
+    const pGeo2 = new THREE.BufferGeometry(); pGeo2.setAttribute('position',new THREE.BufferAttribute(origPos.slice(),3));
+    const tex = new THREE.CanvasTexture((c=>{c.width=64;c.height=64;const ctx=c.getContext('2d');const g=ctx.createRadialGradient(32,32,0,32,32,32);g.addColorStop(0,'rgba(80,180,255,1)');g.addColorStop(0.5,'rgba(30,120,255,0.8)');g.addColorStop(1,'rgba(0,0,0,0)');ctx.fillStyle=g;ctx.arc(32,32,30,0,Math.PI*2);ctx.fill();return c})(document.createElement('canvas')));
+    const pMat2 = new THREE.PointsMaterial({map:tex,color:0x1a6eff,size:0.045,blending:THREE.NormalBlending,depthWrite:false,transparent:true,opacity:0.3});
+    const bubParticles = new THREE.Points(pGeo2,pMat2); bubbleScene.add(bubParticles);
+
+    let audioCtx,analyser,dataArr,micReady=false;
+    async function initMic(){try{const s=await navigator.mediaDevices.getUserMedia({audio:true});audioCtx=new AudioContext();analyser=audioCtx.createAnalyser();analyser.fftSize=256;dataArr=new Uint8Array(analyser.frequencyBinCount);audioCtx.createMediaStreamSource(s).connect(analyser);micReady=true;}catch(e){}}
+    initMic();
+    let smoothVol=0,selfRot=0,aiSpeaking=false;
+    const bubbleClock = new THREE.Clock();
+    function animateBubble(){
+      requestAnimationFrame(animateBubble); const dt=Math.min(bubbleClock.getDelta(),0.1); let vol=0;
+      if(micReady&&analyser&&!aiSpeaking){analyser.getByteTimeDomainData(dataArr);let s=0;for(let i=0;i<dataArr.length;i++)s+=((dataArr[i]-128)/128)**2;vol=Math.min(Math.sqrt(s/dataArr.length)*5.0,2.8);}
+      smoothVol+=(vol-smoothVol)*0.04; const activeVol=smoothVol>0.002?smoothVol:0;
+      outline.material.opacity=0.8*(1-Math.min(activeVol*2.0,0.95));
+      pMat2.opacity=0.3+Math.min(activeVol*2.0,0.6); pMat2.color.setHSL(0.58,1.0,0.5+activeVol*0.2);
+      if(activeVol<0.01) selfRot+=0.5*dt;
+      const pos=pGeo2.attributes.position.array,scale=1.0+activeVol*0.25,cosR=Math.cos(selfRot),sinR=Math.sin(selfRot);
+      for(let i=0;i<cnt;i++){
+        const i3=i*3,ox=origPos[i3],oy=origPos[i3+1],oz=origPos[i3+2];
+        const rx=ox*cosR-oz*sinR,rz=ox*sinR+oz*cosR,ry=oy;
+        const len=Math.sqrt(rx*rx+ry*ry+rz*rz);if(len<0.001)continue;
+        const nx=rx/len,ny=ry/len,nz=rz/len;
+        const theta=Math.acos(ny),phi=Math.atan2(rz,rx);
+        const w1=Math.sin(theta*12+Date.now()*0.008)*activeVol*0.24,w2=Math.cos(phi*10+Date.now()*0.006)*activeVol*0.16,w3=Math.sin((theta+phi)*8+Date.now()*0.01)*activeVol*0.10;
+        pos[i3]=nx*(len*scale + w1+w2+w3); pos[i3+1]=ny*(len*scale + w1+w2+w3); pos[i3+2]=nz*(len*scale + w1+w2+w3);
+      }
+      pGeo2.attributes.position.needsUpdate=true; bubbleRenderer.render(bubbleScene,bubbleCamera);
+    }
+    animateBubble();
+
+    // 地球模型(形态2)
+    const earthScene = new THREE.Scene(); earthScene.background = new THREE.Color(0x050810);
+    const defaultPos = new THREE.Vector3(1.8,0.8,-2.6), defaultTarget = new THREE.Vector3(0,0,0);
+    const earthCamera = new THREE.PerspectiveCamera(40,1,0.1,100); earthCamera.position.copy(defaultPos); earthCamera.lookAt(defaultTarget);
+    const earthRenderer = new THREE.WebGLRenderer({canvas:earthCanvas,antialias:true,alpha:false}); earthRenderer.setPixelRatio(Math.min(devicePixelRatio,2));
+    earthRenderer.toneMapping=THREE.ACESFilmicToneMapping; earthRenderer.toneMappingExposure=1.35; earthRenderer.setClearColor(0x050810,1);
+    const earthControls = new OrbitControls(earthCamera,earthRenderer.domElement); earthControls.enableDamping=true; earthControls.dampingFactor=0.08; earthControls.minDistance=1.4; earthControls.maxDistance=5; earthControls.target.copy(defaultTarget);
+    let resetTimer,resetAnim;
+    function clearEarthReset(){clearTimeout(resetTimer);cancelAnimationFrame(resetAnim);}
+    function startEarthReset(){clearEarthReset();resetTimer=setTimeout(smoothEarthReset,2000);}
+    function smoothEarthReset(){
+      clearEarthReset();
+      const sPos=earthCamera.position.clone(),sTar=earthControls.target.clone(),sTime=performance.now();
+      function anim(now){
+        const t=Math.min((now-sTime)/1200,1); const ease=t<0.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;
+        earthCamera.position.lerpVectors(sPos,defaultPos,ease); earthControls.target.lerpVectors(sTar,defaultTarget,ease); earthControls.update();
+        if(t<1) resetAnim=requestAnimationFrame(anim);
+        else{earthCamera.position.copy(defaultPos);earthControls.target.copy(defaultTarget);earthControls.update();clearEarthReset();}
+      }
+      resetAnim=requestAnimationFrame(anim);
+    }
+    earthRenderer.domElement.addEventListener('pointerdown',clearEarthReset); window.addEventListener('pointerup',startEarthReset);
+    earthRenderer.domElement.addEventListener('wheel',()=>{clearEarthReset();clearTimeout(window.__wt);window.__wt=setTimeout(startEarthReset,800)},{passive:true});
+    const earthGroup = new THREE.Group(); earthScene.add(earthGroup); const rotateGroup = new THREE.Group(); earthGroup.add(rotateGroup);
+    const R=1.0; const earthGeo = new THREE.SphereGeometry(R,128,96);
+    const earthMat = new THREE.MeshStandardMaterial({roughness:0.5,metalness:0});
+    const earthMesh = new THREE.Mesh(earthGeo,earthMat); rotateGroup.add(earthMesh);
+    const eLoader = new THREE.TextureLoader();
+    eLoader.load('https://threejs.org/examples/textures/planets/earth_atmos_2048.jpg', tex=>{tex.colorSpace=THREE.SRGBColorSpace;earthMat.map=tex;earthMat.needsUpdate=true;});
+    const cloudGeo = new THREE.SphereGeometry(R*1.01,96,72);
+    const cloudMat = new THREE.MeshPhongMaterial({color:0xffffff,transparent:true,opacity:0.38,depthWrite:false});
+    const cloudMesh = new THREE.Mesh(cloudGeo,cloudMat); rotateGroup.add(cloudMesh);
+    eLoader.load('https://threejs.org/examples/textures/planets/earth_clouds_1024.png', tex=>{cloudMat.map=tex;cloudMat.alphaMap=tex;cloudMat.needsUpdate=true;});
+    const edgeGeo = new THREE.SphereGeometry(R*1.08,80,60);
+    const edgeMat = new THREE.ShaderMaterial({vertexShader:`varying vec3 vN,vP;void main(){vec4 mv=modelViewMatrix*vec4(position,1.0);vP=mv.xyz;vN=normalize(normalMatrix*normal);gl_Position=projectionMatrix*mv;}`,fragmentShader:`varying vec3 vN,vP;void main(){vec3 v=normalize(-vP);float f=1.0-abs(dot(v,vN));f=pow(f,5.5);gl_FragColor=vec4(vec3(0.38,0.6,0.88),f*0.12);}`,transparent:true,depthWrite:false});
+    const edgeMesh = new THREE.Mesh(edgeGeo,edgeMat); edgeMesh.renderOrder=1; earthGroup.add(edgeMesh);
+    earthScene.add(new THREE.AmbientLight(0x405070,1.8)); earthScene.add(new THREE.HemisphereLight(0x8899cc,0x203050,0.8));
+    const eSun = new THREE.DirectionalLight(0xffffff,5.5); eSun.position.set(2.5,1.2,-3.0); earthScene.add(eSun);
+
+    // UI 通用
+    const mainContainer = document.getElementById('mainContainer');
+    const coreTitle = document.getElementById('coreTitle');
+    const hotCards = document.querySelectorAll('.hot-card');
+    const weatherCard = document.getElementById('weatherCard');
+    const bottomChat = document.getElementById('bottomChat');
+
+    function resizeAll(){
+      const w=document.getElementById('centerPanel').clientWidth, h=document.getElementById('centerPanel').clientHeight;
+      coreRenderer.setSize(w,h); coreCamera.aspect=w/h; coreCamera.updateProjectionMatrix();
+      earthRenderer.setSize(w,h); earthCamera.aspect=w/h; earthCamera.updateProjectionMatrix();
+      bubbleRenderer.setSize(bubbleCanvas.clientWidth,bubbleCanvas.clientHeight); bubbleCamera.aspect=bubbleCanvas.clientWidth/bubbleCanvas.clientHeight; bubbleCamera.updateProjectionMatrix();
+      composer.setSize(w,h);
+    }
+    new ResizeObserver(resizeAll).observe(document.getElementById('centerPanel')); window.addEventListener('resize',resizeAll); resizeAll();
+
+    // 软件映射
+    const softwareMap = {
+      '微信': 'https://wx.qq.com', '抖音': 'https://www.douyin.com', '小红书': 'https://www.xiaohongshu.com',
+      '微博': 'https://weibo.com', '淘宝': 'https://www.taobao.com', '京东': 'https://www.jd.com',
+      '百度': 'https://www.baidu.com', '谷歌': 'https://www.google.com', 'b站': 'https://www.bilibili.com',
+      'bilibili': 'https://www.bilibili.com', '知乎': 'https://www.zhihu.com', '网易云音乐': 'https://music.163.com',
+      'qq音乐': 'https://y.qq.com', '腾讯视频': 'https://v.qq.com', '爱奇艺': 'https://www.iqiyi.com',
+      'github': 'https://github.com', 'gitee': 'https://gitee.com',
+    };
+
+    function openWebsite(name) {
+      const url = softwareMap[name];
+      if (url) {
+        webFrame.src = url;
+      } else {
+        webFrame.src = `https://www.baidu.com/s?wd=${encodeURIComponent(name)}`;
+      }
+      setMode(3);
+      addAIReply(`已打开 ${name || '网页'}`);
+      speak(`正在打开 ${name || '网页'}`);
+    }
+
+    function setMode(mode) {
+      coreCanvas.classList.remove('active');
+      earthCanvas.classList.remove('active');
+      webFrame.classList.remove('active');
+      coreTitle.style.display = 'none';
+      hotCards.forEach(c => c.style.display = 'none');
+      weatherCard.style.display = 'none';
+      mainContainer.classList.remove('mode2');
+
+      if (mode === 1) {
+        coreCanvas.classList.add('active');
+        coreTitle.style.display = 'block';
+      } else if (mode === 2) {
+        earthCanvas.classList.add('active');
+        hotCards.forEach(c => c.style.display = 'block');
+        updateHotspots();
+        mainContainer.classList.add('mode2');
+      } else if (mode === 3) {
+        webFrame.classList.add('active');
+      }
+    }
+
+    function updateHotspots(){
+      setCard('hotDouyin',['#挑战换装','#夏日旅行','#美食测评']); setCard('hotXiaohongshu',['护肤好物分享','一周穿搭','沉浸式回家']);
+      setCard('hotWeibo',['#某某新剧','#世界杯','#今日说法']); setCard('hotNews',['国内经济数据','科技突破','国际要闻']);
+    }
+    function setCard(id,items){ const card=document.getElementById(id); let h=card.querySelector('.platform').outerHTML; items.forEach((t,i)=>h+=`<div class="item"><span class="rank">${i+1}</span><span class="title">${t}</span></div>`); h+=`<div style="font-size:10px;color:#6a5a4a;margin-top:6px;">实时</div>`; card.innerHTML=h; }
+    updateHotspots();
+
+    function showWeather(loc='北京'){
+      const d={ '北京':{temp:26,desc:'晴',humidity:'45%',wind:'3级',aqi:'优'}, '上海':{temp:28,desc:'多云',humidity:'60%',wind:'4级',aqi:'良'}, '广州':{temp:32,desc:'雷阵雨',humidity:'85%',wind:'2级',aqi:'优'}, '默认':{temp:24,desc:'阴',humidity:'55%',wind:'2级',aqi:'良'} }[loc]||{temp:24,desc:'阴',humidity:'55%',wind:'2级',aqi:'良'};
+      document.getElementById('weatherCity').textContent=loc; document.getElementById('weatherTemp').textContent=d.temp+'°'; document.getElementById('weatherDesc').textContent=d.desc;
+      document.getElementById('weatherHumidity').textContent=d.humidity; document.getElementById('weatherWind').textContent=d.wind; document.getElementById('weatherAqi').textContent=d.aqi;
+      weatherCard.style.display='block';
+    }
+    function hideWeather(){ weatherCard.style.display='none'; }
+
+    const userInput = document.getElementById('userInput');
+    // ==================== 流式输出核心逻辑 ====================
+    let streamTimer = null;             // 流式输出定时器
+    let currentStreamBubble = null;   // 当前流式气泡 DOM
+    let currentStreamText = '';       // 当前累积文本
+
+    function startStreamReply(fullText) {
+      // 清除之前的流式定时器
+      clearTimeout(streamTimer);
+      // 设置状态为“说话中”
+      aiSpeaking = true;
+      document.getElementById('bubbleStatus').textContent = '说话中';
+      document.getElementById('bubbleStatus').className = 'status-text speaking';
+      
+      // 创建新气泡
+      const h = document.getElementById('historyChat');
+      const item = document.createElement('div');
+      item.className = 'chat-item';
+      item.innerHTML = `<span class="chat-text">小陆：</span><br><div class="time">${new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>`;
+      h.appendChild(item);
+      h.scrollTop = h.scrollHeight;
+      currentStreamBubble = item;
+      currentStreamText = '';
+      
+      // 显示底部对话框
+      document.getElementById('bottomChat').classList.add('visible');
+      
+      // 开始逐字输出
+      streamText(fullText, 0);
+    }
+
+    function streamText(text, index) {
+      if (!currentStreamBubble) return;
+      
+      if (index < text.length) {
+        const chunk = text.slice(0, index + 1);
+        const span = currentStreamBubble.querySelector('.chat-text');
+        if (span) span.textContent = '小陆：' + chunk;
+        
+        // 同步更新底部浮动对话框
+        document.getElementById('aiMessage').textContent = '小陆：' + chunk;
+        document.getElementById('aiTimestamp').textContent = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+        
+        document.getElementById('historyChat').scrollTop = document.getElementById('historyChat').scrollHeight;
+        
+        // 随机延迟 30~70ms，模拟打字效果
+        streamTimer = setTimeout(() => streamText(text, index + 1), 30 + Math.random() * 40);
+      } else {
+        // 流式输出完成
+        finishStreamReply();
+      }
+    }
+
+    function finishStreamReply() {
+      if (!currentStreamBubble) return;
+      
+      // 更新最终时间戳
+      const timeEl = currentStreamBubble.querySelector('.time');
+      if (timeEl) timeEl.textContent = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+      
+      // 重置状态
+      aiSpeaking = false;
+      document.getElementById('bubbleStatus').textContent = '聆听中';
+      document.getElementById('bubbleStatus').className = 'status-text listening';
+      
+      currentStreamBubble = null;
+      currentStreamText = '';
+      
+      // 底部对话框延时隐藏
+      clearTimeout(window.speakTimeout);
+      window.speakTimeout = setTimeout(() => {
+        document.getElementById('bottomChat').classList.remove('visible');
+      }, 2500);
+    }
+
+    // ==================== 用户消息处理 ====================
+    function userAsk(q){
+      if(!q.trim()) return;
+      const history=document.getElementById('historyChat'); const qi=document.createElement('div'); qi.className='chat-item';
+      qi.innerHTML=`你：${q}<br><div class="time">${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div>`; history.appendChild(qi); history.scrollTop=history.scrollHeight;
+
+      if(q.includes('打开')) {
+        const target = q.replace('打开','').trim();
+        if(target) openWebsite(target);
+        return;
+      }
+      if(q.includes('热点')){ setMode(2); addAIReply("已切换至热点模式。"); speak("已切换至热点模式。"); }
+      else if(q.includes('天气')){
+        setMode(1); let loc='北京'; if(q.includes('上海')) loc='上海'; else if(q.includes('广州')) loc='广州';
+        showWeather(loc); const d={北京:{desc:'晴',temp:'26°',humidity:'45%',wind:'3级',aqi:'优'},上海:{desc:'多云',temp:'28°',humidity:'60%',wind:'4级',aqi:'良'},广州:{desc:'雷阵雨',temp:'32°',humidity:'85%',wind:'2级',aqi:'优'}}[loc]||{desc:'阴',temp:'24°',humidity:'55%',wind:'2级',aqi:'良'};
+        const rep=`${loc}今天${d.desc}，气温${d.temp}，湿度${d.humidity}，风力${d.wind}，空气${d.aqi}。`; addAIReply(rep); speak(rep);
+        clearTimeout(window.whTimer); window.whTimer=setTimeout(hideWeather,7000);
+      } else if(q.includes('返回')||q.includes('退出')||q.includes('关闭')){ setMode(1); addAIReply("已返回标准模式。"); speak("已返回标准模式。"); }
+      else {
+        // ★ 一般消息：使用流式输出
+        const replies = [
+          "这就为您分析这个问题…",
+          "根据当前数据模型，我们可能需要考虑多个维度的因素。",
+          "其实这个问题的答案比想象中复杂，我们一步一步来看。",
+          "已根据您的需求生成了详细的报告，请过目。",
+          "正在查询实时数据，请稍候…"
+        ];
+        const reply = replies[Math.floor(Math.random() * replies.length)];
+        startStreamReply(reply);
+      }
+    }
+    function addAIReply(t){ const h=document.getElementById('historyChat'); const ai=document.createElement('div'); ai.className='chat-item'; ai.innerHTML=`小陆：${t}<br><div class="time">${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div>`; h.appendChild(ai); h.scrollTop=h.scrollHeight; }
+    function speak(m){ document.getElementById('aiMessage').textContent='小陆：'+m; document.getElementById('aiTimestamp').textContent=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}); bottomChat.classList.add('visible'); clearTimeout(window.spkTmr); window.spkTmr=setTimeout(()=>bottomChat.classList.remove('visible'),3500); }
+    document.getElementById('sendTextBtn').addEventListener('click',()=>{userAsk(userInput.value); userInput.value='';});
+    userInput.addEventListener('keydown',e=>{ if(e.key==='Enter'){userAsk(userInput.value); userInput.value='';} });
+    hideWeather();
+    setMode(1);
+
+    // 动画
+    const coreClock = new THREE.Clock();
+    function animateCore(){
+      requestAnimationFrame(animateCore); const t=coreClock.getElapsedTime();
+      planets.forEach(p=>{ p.userData.angle+=p.userData.speed; p.position.x=Math.cos(p.userData.angle)*p.userData.distance; p.position.z=Math.sin(p.userData.angle)*p.userData.distance; p.rotation.y+=0.015; });
+      starsField.rotation.y+=0.0001; starsField.rotation.x+=0.00005;
+      brainGroup.rotation.y -= 0.003; brainGroup.rotation.z += 0.001;
+      brainWire1.rotation.y += 0.004; brainWire2.rotation.y += 0.002;
+      brainNodes.forEach((n,i)=>{ n.scale.setScalar(0.8+Math.sin(t*3+i)*0.4); n.material.opacity=0.7+Math.sin(t*2+i)*0.3; });
+      ring1.rotation.z += 0.006;
+      ring2Group.rotation.y += 0.012; ring2Group.rotation.x = Math.PI/4+Math.sin(t*0.8)*0.5;
+      ring3.rotation.x += 0.004;
+      particleSystem.rotation.y += 0.002; particleSystem.rotation.x += 0.001;
+      const ep=eBuf.attributes.position.array;
+      for(let i=0;i<eCount;i++){ ep[i*3+1]+=eVel[i]; if(ep[i*3+1]>1.8){ const ang=Math.random()*Math.PI*2,rad=Math.random()*0.4; ep[i*3]=Math.cos(ang)*rad; ep[i*3+1]=-0.7+Math.random()*0.3; ep[i*3+2]=Math.sin(ang)*rad; } }
+      eBuf.attributes.position.needsUpdate=true;
+      coreControls.update(); composer.render();
+    }
+    animateCore();
+
+    const earthClock = new THREE.Clock();
+    function animateEarth(){ requestAnimationFrame(animateEarth); const dt=Math.min(earthClock.getDelta(),0.1); rotateGroup.rotation.y+=0.16*dt; earthControls.update(); earthRenderer.render(earthScene,earthCamera); }
+    animateEarth();
+
+    function updateSys(){
+      document.getElementById('cpuValue').textContent=(navigator.hardwareConcurrency||4)+'核 '+Math.floor(10+Math.random()*40)+'%';
+      if(performance.memory){const u=performance.memory.usedJSHeapSize/1048576,t=performance.memory.jsHeapSizeLimit/1048576; document.getElementById('memValue').textContent=u.toFixed(0)+' / '+t.toFixed(0)+' MB';} else document.getElementById('memValue').textContent='不支持';
+      if(!updateSys.gpu){const c=document.createElement('canvas'),gl=c.getContext('webgl2')||c.getContext('webgl'); if(gl){const ext=gl.getExtension('WEBGL_debug_renderer_info'); updateSys.gpu=ext?gl.getParameter(ext.UNMASKED_RENDERER_WEBGL):'未知';} else updateSys.gpu='不支持';}
+      document.getElementById('gpuValue').textContent=updateSys.gpu;
+    }
+    updateSys(); setInterval(updateSys,1000);
+  </script>
+</body>
+</html>
